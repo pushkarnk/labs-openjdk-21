@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2009, 2021, Red Hat, Inc.
+ * Copyright (c) 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -20,26 +19,40 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
- *
  */
 
-#ifndef CPU_ZERO_GLOBALDEFINITIONS_ZERO_HPP
-#define CPU_ZERO_GLOBALDEFINITIONS_ZERO_HPP
+/**
+ * Example of an add function that gets specialized to doubles
+ * if run with --optimize flag set
+ */
 
-#ifdef _LP64
-#define SUPPORTS_NATIVE_CX8
-#endif
+function add(a,b) {
+    return a + b;
+}
 
-#define SUPPORT_MONITOR_COUNT
 
-#ifndef FFI_GO_CLOSURES
-#define FFI_GO_CLOSURES 0
-#endif
+function bench() {
+    var sum = 1;
+    for (var x = 0 ; x < 10e8/2 ; x ++) {
+    sum *= add(x,x + 1);
+    }
+    return sum;
+}
 
-#include <ffi.h>
+print("doing first run");
+var d = new Date;
+print(bench());
+d = new Date - d;
+print("first run took " + d + " ms");
 
-// Indicates whether the C calling conventions require that
-// 32-bit integer argument values are extended to 64 bits.
-const bool CCallingConventionRequiresIntsAsLongs = false;
+// invalidate add, replace it with something else
+add = function(a,b) {
+    return b + a;
+}
 
-#endif // CPU_ZERO_GLOBALDEFINITIONS_ZERO_HPP
+print("doing second run");
+var d = new Date;
+print(bench());
+d = new Date - d;
+print("second run took " + d + " ms");
+

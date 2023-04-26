@@ -47,6 +47,7 @@
 #include "oops/instanceMirrorKlass.hpp"
 #include "oops/instanceKlass.inline.hpp"
 #include "oops/method.inline.hpp"
+#include "oops/objArrayKlass.inline.hpp"
 #include "oops/typeArrayOop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/methodHandles.hpp"
@@ -383,45 +384,93 @@ C2V_VMENTRY_NULL(jobject, getConstantPool, (JNIEnv* env, jobject, ARGUMENT_PAIR(
 }
 
 C2V_VMENTRY_NULL(jobject, getResolvedJavaType0, (JNIEnv* env, jobject, jobject base, jlong offset, jboolean compressed))
-  JVMCIKlassHandle klass(THREAD);
   JVMCIObject base_object = JVMCIENV->wrap(base);
-  jlong base_address = 0;
-  if (base_object.is_non_null() && offset == oopDesc::klass_offset_in_bytes()) {
+  if (base_object.is_null()) {
+    JVMCI_THROW_MSG_NULL(NullPointerException, "base object is null");
+  }
+
+  const char* base_desc = nullptr;
+  JVMCIKlassHandle klass(THREAD);
+  if (offset == oopDesc::klass_offset_in_bytes()) {
     if (JVMCIENV->isa_HotSpotObjectConstantImpl(base_object)) {
       Handle base_oop = JVMCIENV->asConstant(base_object, JVMCI_CHECK_NULL);
       klass = base_oop->klass();
     } else {
-      assert(false, "What types are we actually expecting here?");
+      goto unexpected;
     }
   } else if (!compressed) {
-    if (base_object.is_non_null()) {
-      if (JVMCIENV->isa_HotSpotResolvedJavaMethodImpl(base_object)) {
-        base_address = (intptr_t) JVMCIENV->asMethod(base_object);
-      } else if (JVMCIENV->isa_HotSpotConstantPool(base_object)) {
-        base_address = (intptr_t) JVMCIENV->asConstantPool(base_object);
-      } else if (JVMCIENV->isa_HotSpotResolvedObjectTypeImpl(base_object)) {
-        base_address = (intptr_t) JVMCIENV->asKlass(base_object);
-      } else if (JVMCIENV->isa_HotSpotObjectConstantImpl(base_object)) {
-        Handle base_oop = JVMCIENV->asConstant(base_object, JVMCI_CHECK_NULL);
-        if (base_oop->is_a(vmClasses::Class_klass())) {
-          base_address = cast_from_oop<jlong>(base_oop());
+    if (JVMCIENV->isa_HotSpotConstantPool(base_object)) {
+      ConstantPool* cp = JVMCIENV->asConstantPool(base_object);
+      if (offset == ConstantPool::pool_holder_offset_in_bytes()) {
+        klass = cp->pool_holder();
+      } else {
+        base_desc = FormatBufferResource("[constant pool for %s]", cp->pool_holder()->signature_name());
+        goto unexpected;
+      }
+    } else if (JVMCIENV->isa_HotSpotResolvedObjectTypeImpl(base_object)) {
+      Klass* base_klass = JVMCIENV->asKlass(base_object);
+      if (offset == in_bytes(Klass::subklass_offset())) {
+        klass = base_klass->subklass();
+      } else if (offset == in_bytes(Klass::super_offset())) {
+        klass = base_klass->super();
+      } else if (offset == in_bytes(Klass::next_sibling_offset())) {
+        klass = base_klass->next_sibling();
+      } else if (offset == in_bytes(ObjArrayKlass::element_klass_offset()) && base_klass->is_objArray_klass()) {
+        klass = ObjArrayKlass::cast(base_klass)->element_klass();
+      } else if (offset >= in_bytes(Klass::primary_supers_offset()) &&
+                 offset < in_bytes(Klass::primary_supers_offset()) + (int) (sizeof(Klass*) * Klass::primary_super_limit()) &&
+                 offset % sizeof(Klass*) == 0) {
+        // Offset is within the primary supers array
+        int index = (int) ((offset - in_bytes(Klass::primary_supers_offset())) / sizeof(Klass*));
+        klass = base_klass->primary_super_of_depth(index);
+      } else {
+        base_desc = FormatBufferResource("[%s]", base_klass->signature_name());
+        goto unexpected;
+      }
+    } else if (JVMCIENV->isa_HotSpotObjectConstantImpl(base_object)) {
+      Handle base_oop = JVMCIENV->asConstant(base_object, JVMCI_CHECK_NULL);
+      if (base_oop->is_a(vmClasses::Class_klass())) {
+        if (offset == java_lang_Class::klass_offset()) {
+          klass = java_lang_Class::as_Klass(base_oop());
+        } else if (offset == java_lang_Class::array_klass_offset()) {
+          klass = java_lang_Class::array_klass_acquire(base_oop());
+        } else {
+          base_desc = FormatBufferResource("[Class=%s]", java_lang_Class::as_Klass(base_oop())->signature_name());
+          goto unexpected;
         }
+      } else {
+        if (!base_oop.is_null()) {
+          base_desc = FormatBufferResource("[%s]", base_oop()->klass()->signature_name());
+        }
+        goto unexpected;
       }
-      if (base_address == 0) {
-        JVMCI_THROW_MSG_NULL(IllegalArgumentException,
-                    err_msg("Unexpected arguments: %s " JLONG_FORMAT " %s", JVMCIENV->klass_name(base_object), offset, compressed ? "true" : "false"));
+    } else if (JVMCIENV->isa_HotSpotMethodData(base_object)) {
+      jlong base_address = (intptr_t) JVMCIENV->asMethodData(base_object);
+      klass = *((Klass**) (intptr_t) (base_address + offset));
+      if (klass == nullptr || !klass->is_loader_alive()) {
+        // Klasses in methodData might be concurrently unloading so return null in that case.
+        return nullptr;
       }
+    } else {
+      goto unexpected;
     }
-    klass = *((Klass**) (intptr_t) (base_address + offset));
   } else {
-    JVMCI_THROW_MSG_NULL(IllegalArgumentException,
-                err_msg("Unexpected arguments: %s " JLONG_FORMAT " %s",
-                        base_object.is_non_null() ? JVMCIENV->klass_name(base_object) : "null",
-                        offset, compressed ? "true" : "false"));
+    goto unexpected;
   }
-  assert (klass == nullptr || klass->is_klass(), "invalid read");
-  JVMCIObject result = JVMCIENV->get_jvmci_type(klass, JVMCI_CHECK_NULL);
-  return JVMCIENV->get_jobject(result);
+
+  {
+    if (klass == nullptr) {
+      return nullptr;
+    }
+    JVMCIObject result = JVMCIENV->get_jvmci_type(klass, JVMCI_CHECK_NULL);
+    return JVMCIENV->get_jobject(result);
+  }
+
+unexpected:
+  JVMCI_THROW_MSG_NULL(IllegalArgumentException,
+                       err_msg("Unexpected arguments: %s%s " JLONG_FORMAT " %s",
+                               JVMCIENV->klass_name(base_object), base_desc == nullptr ? "" : base_desc,
+                               offset, compressed ? "true" : "false"));
 }
 
 C2V_VMENTRY_NULL(jobject, findUniqueConcreteMethod, (JNIEnv* env, jobject, ARGUMENT_PAIR(klass), ARGUMENT_PAIR(method)))
@@ -1712,16 +1761,33 @@ C2V_VMENTRY_0(jint, methodDataProfileDataSize, (JNIEnv* env, jobject, jlong meth
   if (mdo->is_valid(profile_data)) {
     return profile_data->size_in_bytes();
   }
+  // Java code should never directly access the extra data section
+  JVMCI_THROW_MSG_0(IllegalArgumentException, err_msg("Invalid profile data position %d", position));
+C2V_END
+
+C2V_VMENTRY_0(jint, methodDataExceptionSeen, (JNIEnv* env, jobject, jlong method_data_pointer, jint bci))
+  MethodData* mdo = (MethodData*) method_data_pointer;
+  MutexLocker mu(mdo->extra_data_lock());
   DataLayout* data    = mdo->extra_data_base();
   DataLayout* end   = mdo->extra_data_limit();
   for (;; data = mdo->next_extra(data)) {
     assert(data < end, "moved past end of extra data");
-    profile_data = data->data_in();
-    if (mdo->dp_to_di(profile_data->dp()) == position) {
-      return profile_data->size_in_bytes();
+    int tag = data->tag();
+    switch(tag) {
+      case DataLayout::bit_data_tag: {
+        BitData* bit_data = (BitData*) data->data_in();
+        if (bit_data->bci() == bci) {
+          return bit_data->exception_seen() ? 1 : 0;
+        }
+        break;
+      }
+    case DataLayout::no_tag:
+    case DataLayout::arg_info_data_tag:
+      // An empty slot or ArgInfoData entry marks the end of the trap data
+      return -1;
     }
   }
-  JVMCI_THROW_MSG_0(IllegalArgumentException, err_msg("Invalid profile data position %d", position));
+  return -1;
 C2V_END
 
 C2V_VMENTRY_NULL(jobject, getInterfaces, (JNIEnv* env, jobject, ARGUMENT_PAIR(klass)))
@@ -3017,6 +3083,7 @@ JNINativeMethod CompilerToVM::methods[] = {
   {CC "writeDebugOutput",                             CC "(JIZ)V",                                                                          FN_PTR(writeDebugOutput)},
   {CC "flushDebugOutput",                             CC "()V",                                                                             FN_PTR(flushDebugOutput)},
   {CC "methodDataProfileDataSize",                    CC "(JI)I",                                                                           FN_PTR(methodDataProfileDataSize)},
+  {CC "methodDataExceptionSeen",                      CC "(JI)I",                                                                           FN_PTR(methodDataExceptionSeen)},
   {CC "interpreterFrameSize",                         CC "(" BYTECODE_FRAME ")I",                                                           FN_PTR(interpreterFrameSize)},
   {CC "compileToBytecode",                            CC "(" OBJECTCONSTANT ")V",                                                           FN_PTR(compileToBytecode)},
   {CC "getFlagValue",                                 CC "(" STRING ")" OBJECT,                                                             FN_PTR(getFlagValue)},
