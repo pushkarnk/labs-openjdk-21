@@ -240,8 +240,10 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
         ],
     },
 
-    # Downstream Graal branch to test against.
-    local downstream_branch = "master",
+    # Downstream Graal branch to test against. If you change this value to anything but
+    # "master", you must create an ol-jira issue to change it back to master once the
+    # next JVMCI release has been made. Add the issue id as a comment here.
+    local downstream_branch = "je/svm-jdk21-19-GR-45947", # GR-45898
 
     local clone_graal(defs) = {
         # Checkout the graal-enterprise repo to the "_gate" version of the
