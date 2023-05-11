@@ -29,11 +29,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
             JIB_PATH: "${PATH}",
             MAKE : "make",
             ZLIB_BUNDLING: "system",
-            MX_PYTHON: "python3.8",
-
-            # Only emit warnings for JVMCI config checks. An error will
-            # be thrown in the Graal PR for a JVMCI release.
-            JVMCI_CONFIG_CHECK: "warn"
+            MX_PYTHON: "python3.8"
         },
     },
 
@@ -229,7 +225,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
             conf.copydir(conf.jdk_home("."), "${JDK_HOME}_fastdebug")
         ] else []),
 
-        publishArtifacts+: if false /*GR-45849*/ && !is_musl_build then [
+        publishArtifacts+: if !is_musl_build then [
             {
                 name: "labsjdk" + conf.name,
                 dir: ".",
@@ -244,8 +240,10 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
         ],
     },
 
-    # Downstream Graal branch to test against.
-    local downstream_branch = "master",
+    # Downstream Graal branch to test against. If you change this value to anything but
+    # "master", you must create an ol-jira issue to change it back to master once the
+    # next JVMCI release has been made. Add the issue id as a comment here.
+    local downstream_branch = "je/svm-jdk21-19-GR-45947", # GR-45898
 
     local clone_graal(defs) = {
         # Checkout the graal-enterprise repo to the "_gate" version of the
@@ -265,7 +263,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
 
             # Use branch recorded by previous builder or record it now for subsequent builder(s)
             ["test", "-f", "graal-enterprise.commit", "||", "echo", branch, ">graal-enterprise.commit"],
-            ["git", "-C", "graal-enterprise", "checkout", ["cat", "graal-enterprise.commit"], "||", "true"],
+            ["git", "-C", "graal-enterprise", "checkout", ["cat", "graal-enterprise.commit"]],
             ["git", "-C", "graal-enterprise", "rev-list", "-n", "1", "HEAD", ">graal-enterprise.commit"],
 
             # Restore PATH as cygwin must not be on the PATH when building Graal.
@@ -325,55 +323,17 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
         ] else []
     },
 
-    # Build LibGraal
-    BuildLibGraal(defs, conf):: conf + requireLabsJDK(conf) + clone_graal(defs) + {
-        name: "build-libgraal" + conf.name,
-        timelimit: "1:30:00",
-        logs: ["*.log"],
-        targets: ["gate"],
-        publishArtifacts: [
-            {
-                name: "libgraal" + conf.name + ".graal-enterprise.commit",
-                dir: ".",
-                patterns: ["graal-enterprise.commit"]
-            },
-            {
-                name: "libgraal" + conf.name,
-                dir: ".",
-                patterns: ["graal/*/mxbuild", "graal-enterprise/*/mxbuild"]
-            }
-        ],
-        run+: [
-            ["mx", "-p", "graal-enterprise/vm-enterprise", "--env", "libgraal-enterprise",
-                "--extra-image-builder-argument=-J-esa",
-                "--extra-image-builder-argument=-H:+ReportExceptionStackTraces", "build"],
-        ]
-    },
-
-    local requireLibGraal(conf) = {
-        requireArtifacts+: [
-            {
-                name: "libgraal" + conf.name + ".graal-enterprise.commit",
-                dir: ".",
-                autoExtract: true
-            },
-            {
-                name: "libgraal" + conf.name,
-                dir: ".",
-                autoExtract: false
-            }
-        ],
-    },
-
-    # Test LibGraal
-    TestLibGraal(defs, conf):: conf + requireLabsJDK(conf) + clone_graal(defs) + requireLibGraal(conf) {
+    # Build and test LibGraal
+    TestLibGraal(defs, conf):: conf + requireLabsJDK(conf) + clone_graal(defs) {
         name: "test-libgraal" + conf.name,
         timelimit: "1:30:00",
         logs: ["*.log"],
         targets: ["gate"],
         run+: [
-            ["unpack-artifact", "libgraal" + conf.name],
-
+            ["mx", "-p", "graal-enterprise/vm-enterprise",
+                "--env", "libgraal-enterprise",
+                "--extra-image-builder-argument=-J-esa",
+                "--extra-image-builder-argument=-H:+ReportExceptionStackTraces", "build"],
             ["mx", "-p", "graal-enterprise/vm-enterprise",
                 "--env", "libgraal-enterprise",
                 "gate", "--task", "LibGraal"],
@@ -405,13 +365,12 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
     ],
 
     DefineBuilds(defs):: [ self.Build(defs, conf, is_musl_build=false) for conf in build_confs(defs) ] +
-            # GR-45849 [ self.CompilerTests(defs, conf, fastdebug=true) for conf in graal_confs(defs) ] +
-            # GR-45849 [ self.CompilerTests(defs, conf, fastdebug=false) for conf in graal_confs(defs) ] +
+            [ self.CompilerTests(defs, conf, fastdebug=true) for conf in graal_confs(defs) ] +
+            [ self.CompilerTests(defs, conf, fastdebug=false) for conf in graal_confs(defs) ] +
 
             # GR-45847 [ self.JavaScriptTests(defs, conf) for conf in graal_confs(defs) ] +
 
-            # GR-45848 [ self.BuildLibGraal(defs, conf) for conf in graal_confs(defs) ] +
-            # GR-45848 [ self.TestLibGraal(defs, conf) for conf in graal_confs(defs) ] +
+            [ self.TestLibGraal(defs, conf) for conf in graal_confs(defs) ] +
 
             [ self.Build(defs, conf, is_musl_build=true) for conf in amd64_musl_confs(defs) ],
 
