@@ -323,55 +323,17 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
         ] else []
     },
 
-    # Build LibGraal
-    BuildLibGraal(defs, conf):: conf + requireLabsJDK(conf) + clone_graal(defs) + {
-        name: "build-libgraal" + conf.name,
-        timelimit: "1:30:00",
-        logs: ["*.log"],
-        targets: ["gate"],
-        publishArtifacts: [
-            {
-                name: "libgraal" + conf.name + ".graal-enterprise.commit",
-                dir: ".",
-                patterns: ["graal-enterprise.commit"]
-            },
-            {
-                name: "libgraal" + conf.name,
-                dir: ".",
-                patterns: ["graal/*/mxbuild", "graal-enterprise/*/mxbuild"]
-            }
-        ],
-        run+: [
-            ["mx", "-p", "graal-enterprise/vm-enterprise", "--env", "libgraal-enterprise",
-                "--extra-image-builder-argument=-J-esa",
-                "--extra-image-builder-argument=-H:+ReportExceptionStackTraces", "build"],
-        ]
-    },
-
-    local requireLibGraal(conf) = {
-        requireArtifacts+: [
-            {
-                name: "libgraal" + conf.name + ".graal-enterprise.commit",
-                dir: ".",
-                autoExtract: true
-            },
-            {
-                name: "libgraal" + conf.name,
-                dir: ".",
-                autoExtract: false
-            }
-        ],
-    },
-
-    # Test LibGraal
-    TestLibGraal(defs, conf):: conf + requireLabsJDK(conf) + clone_graal(defs) + requireLibGraal(conf) {
+    # Build and test LibGraal
+    TestLibGraal(defs, conf):: conf + requireLabsJDK(conf) + clone_graal(defs) {
         name: "test-libgraal" + conf.name,
         timelimit: "1:30:00",
         logs: ["*.log"],
         targets: ["gate"],
         run+: [
-            ["unpack-artifact", "libgraal" + conf.name],
-
+            ["mx", "-p", "graal-enterprise/vm-enterprise",
+                "--env", "libgraal-enterprise",
+                "--extra-image-builder-argument=-J-esa",
+                "--extra-image-builder-argument=-H:+ReportExceptionStackTraces", "build"],
             ["mx", "-p", "graal-enterprise/vm-enterprise",
                 "--env", "libgraal-enterprise",
                 "gate", "--task", "LibGraal"],
@@ -408,7 +370,6 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
 
             # GR-45847 [ self.JavaScriptTests(defs, conf) for conf in graal_confs(defs) ] +
 
-            [ self.BuildLibGraal(defs, conf) for conf in graal_confs(defs) ] +
             [ self.TestLibGraal(defs, conf) for conf in graal_confs(defs) ] +
 
             [ self.Build(defs, conf, is_musl_build=true) for conf in amd64_musl_confs(defs) ],
