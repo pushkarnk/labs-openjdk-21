@@ -263,7 +263,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
 
             # Use branch recorded by previous builder or record it now for subsequent builder(s)
             ["test", "-f", "graal-enterprise.commit", "||", "echo", branch, ">graal-enterprise.commit"],
-            ["git", "-C", "graal-enterprise", "checkout", ["cat", "graal-enterprise.commit"], "||", "true"],
+            ["git", "-C", "graal-enterprise", "checkout", ["cat", "graal-enterprise.commit"]],
             ["git", "-C", "graal-enterprise", "rev-list", "-n", "1", "HEAD", ">graal-enterprise.commit"],
 
             # Restore PATH as cygwin must not be on the PATH when building Graal.
