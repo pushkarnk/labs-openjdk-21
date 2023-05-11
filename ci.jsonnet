@@ -29,11 +29,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
             JIB_PATH: "${PATH}",
             MAKE : "make",
             ZLIB_BUNDLING: "system",
-            MX_PYTHON: "python3.8",
-
-            # Only emit warnings for JVMCI config checks. An error will
-            # be thrown in the Graal PR for a JVMCI release.
-            JVMCI_CONFIG_CHECK: "warn"
+            MX_PYTHON: "python3.8"
         },
     },
 
