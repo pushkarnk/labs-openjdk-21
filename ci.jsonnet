@@ -338,9 +338,30 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
                 "--env", "libgraal-enterprise",
                 "gate", "--task", "LibGraal"],
         ],
+
+        # Longest running tests as reported in the "LibGraal Truffle:unittest" gate task.
+        # We can skip these in labsjdk testing as a) they add a lot of time to the gate,
+        # b) will be included in the Graal integration PR and c) have not revealed any
+        # issues in labsjdk for a long time.
+        local truffle_long_running = [
+            /* 384,019 ms */ "com.oracle.truffle.api.test.polyglot.PolyglotCachingTest",
+            /* 249,545 ms */ "org.graalvm.compiler.truffle.test.LanguageContextFreedTest",
+            /* 219,747 ms */ "com.oracle.truffle.api.dsl.test.WeakCachedTest",
+            /* 101,065 ms */ "org.graalvm.compiler.truffle.test.ExitDuringCompilationTest",
+            /*  83,564 ms */ "com.oracle.truffle.api.test.polyglot.ContextAPITest",
+            /*  75,937 ms */ "com.oracle.truffle.api.debug.test.DebuggerSessionTest",
+            /*  61,275 ms */ "com.oracle.truffle.api.test.polyglot.LoggingTest",
+            /*  52,982 ms */ "com.oracle.truffle.api.staticobject.test.InheritanceTest",
+            /*  47,701 ms */ "com.oracle.truffle.api.test.polyglot.ValueAPITest",
+            /*  31,776 ms */ "org.graalvm.compiler.truffle.test.CompilationMemoryTest"
+        ],
+
         environment+: {
-            # The Truffle TCK tests run as a part of Truffle TCK gate
-            TEST_LIBGRAAL_EXCLUDE: "com.oracle.truffle.tck.tests.* com.oracle.truffle.tools.*"
+            # The Truffle TCK tests run as a part of the Truffle TCK gate in the graal repo
+            TEST_LIBGRAAL_EXCLUDE: "com.oracle.truffle.tck.tests.* com.oracle.truffle.tools.* " +
+
+            # Skip the longest running Truffle tests
+            std.join(" ", truffle_long_running)
         }
     },
 
