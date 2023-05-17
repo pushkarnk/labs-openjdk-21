@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -300,7 +300,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
      */
     @Override
     public boolean isCallerSensitive() {
-        return (getFlags() & config().methodFlagsCallerSensitive) != 0;
+        return (getConstMethodFlags() & config().constMethodFlagsCallerSensitive) != 0;
     }
 
     /**
@@ -320,7 +320,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
      */
     @Override
     public boolean hasReservedStackAccess() {
-        return (getFlags() & config().methodFlagsReservedStackAccess) != 0;
+        return (getConstMethodFlags() & config().constMethodFlagsReservedStackAccess) != 0;
     }
 
     /**
@@ -472,7 +472,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
             }
         }
 
-        if (methodData == null || !methodData.hasNormalData()) {
+        if (methodData == null || (!methodData.hasNormalData() && !methodData.hasExtraData())) {
             // Be optimistic and return false for exceptionSeen. A methodDataOop is allocated in
             // case of a deoptimization.
             info = DefaultProfilingInfo.get(TriState.FALSE);
@@ -720,7 +720,7 @@ final class HotSpotResolvedJavaMethodImpl extends HotSpotMethod implements HotSp
 
     @Override
     public boolean isIntrinsicCandidate() {
-        return (getFlags() & config().methodFlagsIntrinsicCandidate) != 0;
+        return (getConstMethodFlags() & config().constMethodFlagsIntrinsicCandidate) != 0;
     }
 
     /**
