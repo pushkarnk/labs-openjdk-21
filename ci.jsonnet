@@ -1,7 +1,7 @@
 # https://github.com/graalvm/labs-openjdk-21/blob/master/doc/testing.md
 local run_test_spec = "test/hotspot/jtreg/compiler/jvmci test/jdk/tools/jlink/plugins/SaveJlinkArgfilesPluginTest.java";
 
-local labsjdk_builder_version = "e48449d13f7be284f8a2c7f7aa37b998c51fd3b2";
+local labsjdk_builder_version = "8928c95fac6928559341b784233d0f1b985a3a4f";
 
 # Returns true if `str` contains `needle` as a substring.
 local contains(str, needle) = std.findSubstr(needle, str) != [];
@@ -243,7 +243,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
     # Downstream Graal branch to test against. If you change this value to anything but
     # "master", you must create an ol-jira issue to change it back to master once the
     # next JVMCI release has been made. Add the issue id as a comment here.
-    local downstream_branch = "ds/GR-46119",
+    local downstream_branch = "ds/GR-46203_redo",
 
     local clone_graal(defs) = {
         # Checkout the graal-enterprise repo to the "_gate" version of the
