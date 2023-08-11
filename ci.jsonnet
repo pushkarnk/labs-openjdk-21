@@ -288,7 +288,7 @@ local contains(str, needle) = std.findSubstr(needle, str) != [];
 
     CompilerTests(defs, conf, fastdebug):: conf + requireLabsJDK(conf) + clone_graal(defs) + {
         name: "test-compiler" + (if fastdebug then "-fastdebug" else "") + conf.name,
-        timelimit: "1:30:00",
+        timelimit: "1:40:00",
         logs: ["*.log"],
         targets: ["gate"],
         run+: if !fastdebug then [
