@@ -1,13 +1,13 @@
 # https://github.com/graalvm/labs-openjdk-21/blob/master/doc/testing.md
 local run_test_spec = "test/hotspot/jtreg/compiler/jvmci test/jdk/tools/jlink/plugins/SaveJlinkArgfilesPluginTest.java";
 
-local labsjdk_builder_version = "8928c95fac6928559341b784233d0f1b985a3a4f";
+local labsjdk_builder_version = "bcdc3fc82760543571fac7c1c35452dbb2ce6b9b";
 
 # Returns true if `str` contains `needle` as a substring.
 local contains(str, needle) = std.findSubstr(needle, str) != [];
 
 {
-    overlay: "9aaf850438f4551337c76b9133b700c23abfd739",
+    overlay: "087852016f367deb24c7d893052ab48e04e698c1",
     specVersion: "3",
 
     mxDependencies:: {
