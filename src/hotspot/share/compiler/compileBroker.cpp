@@ -832,8 +832,15 @@ void DeoptimizeObjectsALotThread::deoptimize_objects_alot_loop_all() {
 
 
 JavaThread* CompileBroker::make_thread(ThreadType type, jobject thread_handle, CompileQueue* queue, AbstractCompiler* comp, JavaThread* THREAD) {
-  JavaThread* new_thread = nullptr;
+  Handle thread_oop(THREAD, JNIHandles::resolve_non_null(thread_handle));
 
+  if (java_lang_Thread::thread(thread_oop()) != nullptr) {
+    assert(type == compiler_t, "should only happen with reused compiler threads");
+    // The compiler thread hasn't actually exited yet so don't try to reuse it
+    return nullptr;
+  }
+
+  JavaThread* new_thread = nullptr;
   switch (type) {
     case compiler_t:
       assert(comp != nullptr, "Compiler instance missing.");
@@ -862,7 +869,6 @@ JavaThread* CompileBroker::make_thread(ThreadType type, jobject thread_handle, C
   // JavaThread due to lack of resources. We will handle that failure below.
   // Also check new_thread so that static analysis is happy.
   if (new_thread != nullptr && new_thread->osthread() != nullptr) {
-    Handle thread_oop(THREAD, JNIHandles::resolve_non_null(thread_handle));
 
     if (type == compiler_t) {
       CompilerThread::cast(new_thread)->set_compiler(comp);
@@ -1772,17 +1778,22 @@ bool CompileBroker::init_compiler_runtime() {
   return true;
 }
 
+void CompileBroker::free_buffer_blob_if_allocated(CompilerThread* thread) {
+  BufferBlob* blob = thread->get_buffer_blob();
+  if (blob != nullptr) {
+    blob->purge(true /* free_code_cache_data */, true /* unregister_nmethod */);
+    MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+    CodeCache::free(blob);
+  }
+}
+
 /**
  * If C1 and/or C2 initialization failed, we shut down all compilation.
  * We do this to keep things simple. This can be changed if it ever turns
  * out to be a problem.
  */
 void CompileBroker::shutdown_compiler_runtime(AbstractCompiler* comp, CompilerThread* thread) {
-  // Free buffer blob, if allocated
-  if (thread->get_buffer_blob() != nullptr) {
-    MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-    CodeCache::free(thread->get_buffer_blob());
-  }
+  free_buffer_blob_if_allocated(thread);
 
   if (comp->should_perform_shutdown()) {
     // There are two reasons for shutting down the compiler
@@ -1921,11 +1932,7 @@ void CompileBroker::compiler_thread_loop() {
           // Notify compiler that the compiler thread is about to stop
           thread->compiler()->stopping_compiler_thread(thread);
 
-          // Free buffer blob, if allocated
-          if (thread->get_buffer_blob() != nullptr) {
-            MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-            CodeCache::free(thread->get_buffer_blob());
-          }
+          free_buffer_blob_if_allocated(thread);
           return; // Stop this thread.
         }
       }
@@ -2288,7 +2295,9 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
     compilable = ci_env.compilable();
 
     if (ci_env.failing()) {
-      failure_reason = ci_env.failure_reason();
+      // Duplicate the failure reason string, so that it outlives ciEnv
+      failure_reason = os::strdup(ci_env.failure_reason(), mtCompiler);
+      failure_reason_on_C_heap = true;
       retry_message = ci_env.retry_message();
       ci_env.report_failure(failure_reason);
     }
@@ -2651,8 +2660,8 @@ void CompileBroker::print_times(bool per_compiler, bool aggregate) {
   int total_bailout_count = CompileBroker::_total_bailout_count;
   int total_invalidated_count = CompileBroker::_total_invalidated_count;
 
-  int nmethods_size = CompileBroker::_sum_nmethod_code_size;
-  int nmethods_code_size = CompileBroker::_sum_nmethod_size;
+  int nmethods_code_size = CompileBroker::_sum_nmethod_code_size;
+  int nmethods_size = CompileBroker::_sum_nmethod_size;
 
   tty->cr();
   tty->print_cr("Accumulated compiler times");

@@ -688,7 +688,7 @@ void TemplateInterpreterGenerator::generate_stack_overflow_check(void) {
 
   // monitor entry size: see picture of stack set
   // (generate_method_entry) and frame_amd64.hpp
-  const int entry_size = frame::interpreter_frame_monitor_size() * wordSize;
+  const int entry_size = frame::interpreter_frame_monitor_size_in_bytes();
 
   // total overhead size: entry_size + (saved rbp through expr stack
   // bottom).  be sure to change this if you add/subtract anything
@@ -769,7 +769,7 @@ void TemplateInterpreterGenerator::lock_method() {
   const Address monitor_block_top(
         rfp,
         frame::interpreter_frame_monitor_block_top_offset * wordSize);
-  const int entry_size = frame::interpreter_frame_monitor_size() * wordSize;
+  const int entry_size = frame::interpreter_frame_monitor_size_in_bytes();
 
 #ifdef ASSERT
   {
@@ -1823,7 +1823,7 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
     Label caller_not_deoptimized;
     __ ldr(c_rarg1, Address(rfp, frame::return_addr_offset * wordSize));
     // This is a return address, so requires authenticating for PAC.
-    __ authenticate_return_address(c_rarg1, rscratch1);
+    __ authenticate_return_address(c_rarg1);
     __ super_call_VM_leaf(CAST_FROM_FN_PTR(address,
                                InterpreterRuntime::interpreter_contains), c_rarg1);
     __ cbnz(r0, caller_not_deoptimized);

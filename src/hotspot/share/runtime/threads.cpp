@@ -80,6 +80,7 @@
 #include "runtime/safepointVerifiers.hpp"
 #include "runtime/serviceThread.hpp"
 #include "runtime/sharedRuntime.hpp"
+#include "runtime/stackWatermarkSet.inline.hpp"
 #include "runtime/statSampler.hpp"
 #include "runtime/stubCodeGenerator.hpp"
 #include "runtime/thread.inline.hpp"
@@ -87,6 +88,7 @@
 #include "runtime/threadSMR.inline.hpp"
 #include "runtime/timer.hpp"
 #include "runtime/timerTrace.hpp"
+#include "runtime/trimNativeHeap.hpp"
 #include "runtime/vmOperations.hpp"
 #include "runtime/vm_version.hpp"
 #include "services/attachListener.hpp"
@@ -759,6 +761,10 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   }
 #endif
 
+  if (NativeHeapTrimmer::enabled()) {
+    NativeHeapTrimmer::initialize();
+  }
+
   // Always call even when there are not JVMTI environments yet, since environments
   // may be attached late and JVMTI must track phases of VM execution
   JvmtiExport::enter_live_phase();
@@ -817,10 +823,10 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
 
 // Threads::destroy_vm() is normally called from jni_DestroyJavaVM() when
 // the program falls off the end of main(). Another VM exit path is through
-// vm_exit() when the program calls System.exit() to return a value or when
-// there is a serious error in VM. The two shutdown paths are not exactly
-// the same, but they share Shutdown.shutdown() at Java level and before_exit()
-// and VM_Exit op at VM level.
+// vm_exit(), when the program calls System.exit() to return a value, or when
+// there is a serious error in VM.
+// These two separate shutdown paths are not exactly the same, but they share
+// Shutdown.shutdown() at Java level and before_exit() and VM_Exit op at VM level.
 //
 // Shutdown sequence:
 //   + Shutdown native memory tracking if it is on
@@ -1002,7 +1008,7 @@ void Threads::add(JavaThread* p, bool force_daemon) {
   ObjectSynchronizer::inc_in_use_list_ceiling();
 
   // Possible GC point.
-  Events::log(p, "Thread added: " INTPTR_FORMAT, p2i(p));
+  Events::log(Thread::current(), "Thread added: " INTPTR_FORMAT, p2i(p));
 
   // Make new thread known to active EscapeBarrier
   EscapeBarrier::thread_added(p);
@@ -1065,7 +1071,7 @@ void Threads::remove(JavaThread* p, bool is_daemon) {
   ObjectSynchronizer::dec_in_use_list_ceiling();
 
   // Since Events::log uses a lock, we grab it outside the Threads_lock
-  Events::log(p, "Thread exited: " INTPTR_FORMAT, p2i(p));
+  Events::log(Thread::current(), "Thread exited: " INTPTR_FORMAT, p2i(p));
 }
 
 // Operations on the Threads list for GC.  These are not explicitly locked,
@@ -1224,6 +1230,12 @@ JavaThread *Threads::owning_thread_from_monitor_owner(ThreadsList * t_list,
 JavaThread* Threads::owning_thread_from_object(ThreadsList * t_list, oop obj) {
   assert(LockingMode == LM_LIGHTWEIGHT, "Only with new lightweight locking");
   for (JavaThread* q : *t_list) {
+    // Need to start processing before accessing oops in the thread.
+    StackWatermark* watermark = StackWatermarkSet::get(q, StackWatermarkKind::gc);
+    if (watermark != nullptr) {
+      watermark->start_processing();
+    }
+
     if (q->lock_stack().contains(obj)) {
       return q;
     }
@@ -1305,10 +1317,7 @@ void Threads::print_on(outputStream* st, bool print_stacks,
   }
 
   PrintOnClosure cl(st);
-  cl.do_thread(VMThread::vm_thread());
-  Universe::heap()->gc_threads_do(&cl);
-  cl.do_thread(WatcherThread::watcher_thread());
-  cl.do_thread(AsyncLogWriter::instance());
+  non_java_threads_do(&cl);
 
   st->flush();
 }
